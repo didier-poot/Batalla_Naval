@@ -11,9 +11,12 @@ public class BatallaNavalGUI : MonoBehaviour
     public GameObject botonPrefab;
     public Transform gridParent;
 
+    // 1. MÁQUINA DE ESTADOS (Enum)
     public enum EstadoJuego { FaseColocacion, TurnoJugador, TurnoEnemigo, FinJuego }
     private EstadoJuego estadoActual;
 
+    // 2. LA CUADRÍCULA LÓGICA (Back-end)
+    // 0 = Agua, 1 = Barco, 2 = Impacto (Fuego), 3 = Fallo (Agua salpicada)
     private const int TAMANO = 10;
     private const int MAX_BARCOS = 5;
 
@@ -38,6 +41,8 @@ public class BatallaNavalGUI : MonoBehaviour
             ReiniciarJuego();
         }
     }
+
+    // 3. CONTROLADOR CENTRAL DE EVENTOS
 
     private void ReiniciarJuego()
     {
@@ -101,6 +106,7 @@ public class BatallaNavalGUI : MonoBehaviour
         }
     }
 
+    // Lógica pura: Colocar barco
     private void ColocarBarco(int x, int y)
     {
         if (tableroLogico[x, y] == 0 && barcosColocados < MAX_BARCOS)
@@ -118,6 +124,7 @@ public class BatallaNavalGUI : MonoBehaviour
         }
     }
 
+    // Lógica pura: Atacar
     private void AtacarCasilla(int x, int y)
     {
         if (x < 0 || x >= TAMANO || y < 0 || y >= TAMANO) return;
@@ -146,6 +153,7 @@ public class BatallaNavalGUI : MonoBehaviour
         CambiarEstado(EstadoJuego.TurnoEnemigo);
     }
 
+    // Lógica pura: El Enemigo ataca (Simulado por ahora)
     private IEnumerator SimularTurnoEnemigo()
     {
         yield return new WaitForSeconds(1.5f);
@@ -291,6 +299,7 @@ public class BatallaNavalGUI : MonoBehaviour
         }
     }
 
+    // 4. ACTUALIZACIÓN VISUAL (Aislada de la lógica matemática)
     private void ActualizarVisualCasilla(int x, int y)
     {
         int estadoLogico = tableroLogico[x, y];
@@ -313,6 +322,7 @@ public class BatallaNavalGUI : MonoBehaviour
         }
     }
 
+    // Gestor de transiciones de estado
     private void CambiarEstado(EstadoJuego nuevoEstado)
     {
         estadoActual = nuevoEstado;
