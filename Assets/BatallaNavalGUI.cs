@@ -1,148 +1,172 @@
 using UnityEngine;
 using UnityEngine.UI;
-using TMPro; // Necesario para TextMeshPro
+using TMPro;
 using System.Collections;
-using System.Collections.Generic;
 
 public class BatallaNavalGUI : MonoBehaviour
 {
-    public enum FaseJuego { Colocar, Jugar }
-    private FaseJuego fase = FaseJuego.Colocar;
-
-    // Tamaño del tablero de 10x10 según el código original
-    private const int TAMANO = 10; 
-
     [Header("Referencias UI")]
-    public TextMeshProUGUI labelEstado;
-    public GameObject botonPrefab; 
-    public Transform gridParent; // Asignar un panel con GridLayoutGroup
+    public TMP_Text labelEstado;
+    public GameObject botonPrefab;
+    public Transform gridParent;
 
-    private Button[,] botones;
-    private List<Vector2Int> barcosJugador = new List<Vector2Int>();
-    private List<Vector2Int> barcosEnemigo = new List<Vector2Int>();
+    // 1. MÁQUINA DE ESTADOS (Enum)
+    public enum EstadoJuego { FaseColocacion, TurnoJugador, TurnoEnemigo, FinJuego }
+    private EstadoJuego estadoActual;
+
+    // 2. LA CUADRÍCULA LÓGICA (Back-end)
+    // 0 = Agua, 1 = Barco, 2 = Impacto (Fuego), 3 = Fallo (Agua salpicada)
+    private int[,] tableroLogico = new int[10, 10];
+    
+    // Matriz para guardar la referencia visual de los botones
+    private Image[,] tableroVisual = new Image[10, 10];
+
+    private int barcosColocados = 0;
+    private const int MAX_BARCOS = 5;
 
     void Start()
     {
-        botones = new Button[TAMANO, TAMANO];
-        labelEstado.text = "Coloca tus barcos (0/5)";
-        
-        // Simulación de la función crear_barcos(TAMANO) importada en tu script
-        GenerarBarcosEnemigo(); 
-        
         GenerarTablero();
+        CambiarEstado(EstadoJuego.FaseColocacion);
     }
 
     void GenerarTablero()
     {
-        for (int i = 0; i < TAMANO; i++)
+        for (int x = 0; x < 10; x++)
         {
-            for (int j = 0; j < TAMANO; j++)
+            for (int y = 0; y < 10; y++)
             {
-                // Capturar variables locales para el delegado onClick
-                int fila = i;
-                int col = j;
+                // Inicializar la lógica (todo es agua al principio)
+                tableroLogico[x, y] = 0;
+
+                // Crear el botón visual
+                GameObject nuevoBoton = Instantiate(botonPrefab, gridParent);
+                nuevoBoton.name = $"Casilla_{x}_{y}";
                 
-                GameObject nuevoBotonObj = Instantiate(botonPrefab, gridParent);
-                Button boton = nuevoBotonObj.GetComponent<Button>();
+                // Guardar la referencia visual (su componente Image)
+                tableroVisual[x, y] = nuevoBoton.GetComponent<Image>();
+
+                // Capturar coordenadas para el evento de clic
+                int posX = x;
+                int posY = y;
                 
-                // Enlace equivalente a lambda i=i, j=j: disparo(i, j)
-                boton.onClick.AddListener(() => Disparo(fila, col));
-                
-                botones[i, j] = boton;
+                // Añadir la función de clic separada de la UI
+                nuevoBoton.GetComponent<Button>().onClick.AddListener(() => AlHacerClicEnCasilla(posX, posY));
             }
         }
     }
 
-    void Disparo(int fila, int col)
+    // 3. CONTROLADOR CENTRAL DE EVENTOS
+    public void AlHacerClicEnCasilla(int x, int y)
     {
-        Vector2Int posicion = new Vector2Int(fila, col);
-
-        if (fase == FaseJuego.Colocar)
+        // El comportamiento del clic depende enteramente del Estado actual
+        switch (estadoActual)
         {
-            // Límite de 5 barcos
-            if (barcosJugador.Count >= 5 || barcosJugador.Contains(posicion)) return;
-
-            botones[fila, col].GetComponent<Image>().color = Color.blue;
-            barcosJugador.Add(posicion);
-            labelEstado.text = $"Coloca tus barcos ({barcosJugador.Count}/5)";
-
-            if (barcosJugador.Count == 5)
-            {
-                fase = FaseJuego.Jugar;
-                labelEstado.text = "¡Listo! Haz clic en el tablero para atacar.";
-            }
+            case EstadoJuego.FaseColocacion:
+                ColocarBarco(x, y);
+                break;
+                
+            case EstadoJuego.TurnoJugador:
+                AtacarCasilla(x, y);
+                break;
+                
+            case EstadoJuego.TurnoEnemigo:
+            case EstadoJuego.FinJuego:
+                // No hacer nada si no es el turno del jugador
+                Debug.Log("No puedes interactuar en este momento.");
+                break;
         }
-        else if (fase == FaseJuego.Jugar)
-        {
-            TextMeshProUGUI textoBoton = botones[fila, col].GetComponentInChildren<TextMeshProUGUI>();
-            if (textoBoton.text != "") return;
+    }
 
-            labelEstado.text = "Consultando coordenadas en la Base de Datos...";
-            BloquearTablero(false); // Deshabilitar botones libres temporalmente
+    // Lógica pura: Colocar barco
+    private void ColocarBarco(int x, int y)
+    {
+        if (tableroLogico[x, y] == 0 && barcosColocados < MAX_BARCOS)
+        {
+            tableroLogico[x, y] = 1; // 1 = Barco
+            barcosColocados++;
             
-            // Reemplazo del threading.Thread
-            StartCoroutine(ConsultarBDYDisparar(fila, col));
-        }
-    }
+            ActualizarVisualCasilla(x, y);
+            labelEstado.text = $"Coloca tus barcos ({barcosColocados}/{MAX_BARCOS})";
 
-    // Equivalente a def consultar_bd_y_disparar()
-    IEnumerator ConsultarBDYDisparar(int fila, int col)
-    {
-        // Reemplazo de time.sleep(1.0)
-        yield return new WaitForSeconds(1.0f); 
-        
-        bool acierto = barcosEnemigo.Contains(new Vector2Int(fila, col));
-        ActualizarGUIDisparo(fila, col, acierto);
-    }
-
-    // Equivalente a def actualizar_gui_disparo()
-    void ActualizarGUIDisparo(int fila, int col, bool acierto)
-    {
-        Button boton = botones[fila, col];
-        TextMeshProUGUI textoBoton = boton.GetComponentInChildren<TextMeshProUGUI>();
-        Image imagenBoton = boton.GetComponent<Image>();
-
-        if (acierto)
-        {
-            textoBoton.text = "X"; // Usar 'X' en lugar del emoji para fuentes estándar
-            imagenBoton.color = Color.red;
-            labelEstado.text = "¡Impacto confirmado!";
-        }
-        else
-        {
-            textoBoton.text = "O";
-            // Color 'lightblue' de Tkinter equivale a cyan en Unity básico
-            imagenBoton.color = Color.cyan; 
-            labelEstado.text = "Agua... Turno del enemigo.";
-        }
-
-        boton.interactable = false;
-        BloquearTablero(true); // Rehabilitar casillas vacías
-    }
-
-    void BloquearTablero(bool interactuable)
-    {
-        for (int i = 0; i < TAMANO; i++)
-        {
-            for (int j = 0; j < TAMANO; j++)
+            if (barcosColocados >= MAX_BARCOS)
             {
-                TextMeshProUGUI textoBoton = botones[i, j].GetComponentInChildren<TextMeshProUGUI>();
-                // Solo modificar estado normal si no se ha clickeado aún
-                if (textoBoton.text == "")
-                {
-                    botones[i, j].interactable = interactuable;
-                }
+                CambiarEstado(EstadoJuego.TurnoJugador);
             }
         }
     }
 
-    void GenerarBarcosEnemigo()
+    // Lógica pura: Atacar
+    private void AtacarCasilla(int x, int y)
     {
-        // Función placeholder para sustituir la lógica de juego.py
-        barcosEnemigo.Add(new Vector2Int(0, 0));
-        barcosEnemigo.Add(new Vector2Int(1, 1));
-        barcosEnemigo.Add(new Vector2Int(2, 2));
-        barcosEnemigo.Add(new Vector2Int(3, 3));
-        barcosEnemigo.Add(new Vector2Int(4, 4));
+        // Solo podemos atacar agua o barcos, no lugares ya atacados (2 o 3)
+        if (tableroLogico[x, y] == 0)
+        {
+            tableroLogico[x, y] = 3; // 3 = Fallo
+            ActualizarVisualCasilla(x, y);
+            CambiarEstado(EstadoJuego.TurnoEnemigo);
+        }
+        else if (tableroLogico[x, y] == 1)
+        {
+            tableroLogico[x, y] = 2; // 2 = Impacto
+            ActualizarVisualCasilla(x, y);
+            CambiarEstado(EstadoJuego.TurnoEnemigo);
+        }
+    }
+
+    // Lógica pura: El Enemigo ataca (Simulado por ahora)
+    private IEnumerator SimularTurnoEnemigo()
+    {
+        yield return new WaitForSeconds(1.5f);
+        
+        // Aquí conectaremos la Base de Datos o la IA más adelante
+        labelEstado.text = "El enemigo falló su tiro.";
+        
+        yield return new WaitForSeconds(1f);
+        CambiarEstado(EstadoJuego.TurnoJugador);
+    }
+
+    // 4. ACTUALIZACIÓN VISUAL (Aislada de la lógica matemática)
+    private void ActualizarVisualCasilla(int x, int y)
+    {
+        int estadoLogico = tableroLogico[x, y];
+        Image imagenBoton = tableroVisual[x, y];
+
+        // Por ahora cambiamos el color, luego cambiaremos el sprite (la imagen)
+        switch (estadoLogico)
+        {
+            case 0: // Agua
+                imagenBoton.color = Color.white; 
+                break;
+            case 1: // Barco
+                imagenBoton.color = Color.gray; 
+                break;
+            case 2: // Impacto
+                imagenBoton.color = Color.red; 
+                break;
+            case 3: // Fallo
+                imagenBoton.color = Color.cyan; 
+                break;
+        }
+    }
+
+    // Gestor de transiciones de estado
+    private void CambiarEstado(EstadoJuego nuevoEstado)
+    {
+        estadoActual = nuevoEstado;
+
+        switch (estadoActual)
+        {
+            case EstadoJuego.FaseColocacion:
+                labelEstado.text = $"Coloca tus barcos (0/{MAX_BARCOS})";
+                break;
+            case EstadoJuego.TurnoJugador:
+                labelEstado.text = "¡Ataca al enemigo!";
+                break;
+            case EstadoJuego.TurnoEnemigo:
+                labelEstado.text = "Turno del enemigo...";
+                StartCoroutine(SimularTurnoEnemigo());
+                break;
+        }
     }
 }
