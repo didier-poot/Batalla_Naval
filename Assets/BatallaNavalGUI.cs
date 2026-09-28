@@ -2,350 +2,190 @@ using UnityEngine;
 using UnityEngine.UI;
 using TMPro;
 using System.Collections;
-using System.Collections.Generic;
 
 public class BatallaNavalGUI : MonoBehaviour
 {
-    [Header("Referencias UI")]
+    [Header("Paneles de Navegación")]
+    public GameObject panelMenuInicio;
+    public GameObject panelJuego;
+
+    [Header("Campos de Menú")]
+    public TMP_InputField inputNombreJugador;
+    public TMP_Text labelBienvenida;
+
+    [Header("Referencias de Tableros (UI)")]
+    public Transform gridJugador;  // "Tu Flota"
+    public Transform gridEnemigo;  // "Radar Enemigo"
+    public GameObject botonCasillaPrefab;
     public TMP_Text labelEstado;
-    public GameObject botonPrefab;
-    public Transform gridParent;
 
-    // 1. MÁQUINA DE ESTADOS (Enum)
-    public enum EstadoJuego { FaseColocacion, TurnoJugador, TurnoEnemigo, FinJuego }
+    // Lógica de Doble Tablero (0 = Agua, 1 = Barco, 2 = Impacto, 3 = Fallo)
+    private int[,] tableroJugador = new int[10, 10];
+    private int[,] tableroEnemigo = new int[10, 10];
+
+    private Image[,] visualJugador = new Image[10, 10];
+    private Image[,] visualEnemigo = new Image[10, 10];
+
+    // Configuración de Flota
+    private int[] tamaniosBarcos = { 5, 4, 3, 3, 2 }; // Portaviones, Acorazado, etc.
+    private int indiceBarcoActual = 0;
+    private bool esHorizontal = true;
+    private string nombreAlmirante = "Almirante";
+
+    public enum EstadoJuego { Menu, FaseColocacion, TurnoJugador, TurnoEnemigo, FinJuego }
     private EstadoJuego estadoActual;
-
-    // 2. LA CUADRÍCULA LÓGICA (Back-end)
-    // 0 = Agua, 1 = Barco, 2 = Impacto (Fuego), 3 = Fallo (Agua salpicada)
-    private const int TAMANO = 10;
-    private const int MAX_BARCOS = 5;
-
-    private int[,] tableroLogico = new int[TAMANO, TAMANO];
-    private Image[,] tableroVisual = new Image[TAMANO, TAMANO];
-
-    private int barcosColocados = 0;
-    private List<Vector2Int> barcosEnemigo = new List<Vector2Int>();
-    private HashSet<Vector2Int> disparosEnemigo = new HashSet<Vector2Int>();
-    private List<Vector2Int> objetivosEnemigo = new List<Vector2Int>();
-    private bool reiniciando = false;
 
     void Start()
     {
-        ReiniciarJuego();
+        panelMenuInicio.SetActive(true);
+        panelJuego.SetActive(false);
+        estadoActual = EstadoJuego.Menu;
     }
 
     void Update()
     {
-        if (Input.GetKeyDown(KeyCode.R))
+        // Alternar rotación del barco con Clic Derecho durante la colocación
+        if (estadoActual == EstadoJuego.FaseColocacion && Input.GetMouseButtonDown(1))
         {
-            ReiniciarJuego();
+            esHorizontal = !esHorizontal;
+            ActualizarMensajeEstado();
         }
     }
 
-    // 3. CONTROLADOR CENTRAL DE EVENTOS
-
-    private void ReiniciarJuego()
+    // Método conectado al botón "INICIAR SECUENCIA"
+    public void IniciarJuego()
     {
-        if (gridParent != null)
-        {
-            foreach (Transform hijo in gridParent)
-            {
-                Destroy(hijo.gameObject);
-            }
-        }
+        if (!string.IsNullOrEmpty(inputNombreJugador.text))
+            nombreAlmirante = inputNombreJugador.text;
 
-        reiniciando = false;
-        barcosColocados = 0;
-        barcosEnemigo.Clear();
-        disparosEnemigo.Clear();
-        objetivosEnemigo.Clear();
-        tableroLogico = new int[TAMANO, TAMANO];
-        tableroVisual = new Image[TAMANO, TAMANO];
+        labelBienvenida.text = $"Base del Almirante: {nombreAlmirante}";
 
-        GenerarTablero();
-        GenerarBarcosEnemigo();
+        panelMenuInicio.SetActive(false);
+        panelJuego.SetActive(true);
+
+        GenerarTablerosUI();
         CambiarEstado(EstadoJuego.FaseColocacion);
     }
 
-    void GenerarTablero()
+    private void GenerarTablerosUI()
     {
-        for (int x = 0; x < TAMANO; x++)
+        for (int x = 0; x < 10; x++)
         {
-            for (int y = 0; y < TAMANO; y++)
+            for (int y = 0; y < 10; y++)
             {
-                tableroLogico[x, y] = 0;
+                // Crear casilla en "Tu Flota"
+                GameObject bJugador = Instantiate(botonCasillaPrefab, gridJugador);
+                visualJugador[x, y] = bJugador.GetComponent<Image>();
+                int posX = x, posY = y;
+                bJugador.GetComponent<Button>().onClick.AddListener(() => AlClicTableroJugador(posX, posY));
 
-                GameObject nuevoBoton = Instantiate(botonPrefab, gridParent);
-                nuevoBoton.name = $"Casilla_{x}_{y}";
-                tableroVisual[x, y] = nuevoBoton.GetComponent<Image>();
-
-                int posX = x;
-                int posY = y;
-                nuevoBoton.GetComponent<Button>().onClick.AddListener(() => AlHacerClicEnCasilla(posX, posY));
+                // Crear casilla en "Radar Enemigo"
+                GameObject bEnemigo = Instantiate(botonCasillaPrefab, gridEnemigo);
+                visualEnemigo[x, y] = bEnemigo.GetComponent<Image>();
+                bEnemigo.GetComponent<Button>().onClick.AddListener(() => AlClicTableroEnemigo(posX, posY));
             }
         }
     }
 
-    public void AlHacerClicEnCasilla(int x, int y)
+    private void AlClicTableroJugador(int x, int y)
     {
-        if (reiniciando) return;
-
-        switch (estadoActual)
+        if (estadoActual == EstadoJuego.FaseColocacion)
         {
-            case EstadoJuego.FaseColocacion:
-                ColocarBarco(x, y);
-                break;
-
-            case EstadoJuego.TurnoJugador:
-                AtacarCasilla(x, y);
-                break;
-
-            case EstadoJuego.TurnoEnemigo:
-            case EstadoJuego.FinJuego:
-                break;
-        }
-    }
-
-    // Lógica pura: Colocar barco
-    private void ColocarBarco(int x, int y)
-    {
-        if (tableroLogico[x, y] == 0 && barcosColocados < MAX_BARCOS)
-        {
-            tableroLogico[x, y] = 1;
-            barcosColocados++;
-
-            ActualizarVisualCasilla(x, y);
-            labelEstado.text = $"Coloca tus barcos ({barcosColocados}/{MAX_BARCOS})";
-
-            if (barcosColocados >= MAX_BARCOS)
+            int tamanio = tamaniosBarcos[indiceBarcoActual];
+            if (PuedeColocarBarco(tableroJugador, x, y, tamanio, esHorizontal))
             {
-                CambiarEstado(EstadoJuego.TurnoJugador);
-            }
-        }
-    }
+                ColocarBarco(tableroJugador, visualJugador, x, y, tamanio, esHorizontal);
+                indiceBarcoActual++;
 
-    // Lógica pura: Atacar
-    private void AtacarCasilla(int x, int y)
-    {
-        if (x < 0 || x >= TAMANO || y < 0 || y >= TAMANO) return;
-
-        if (tableroLogico[x, y] == 2 || tableroLogico[x, y] == 3) return;
-
-        if (barcosEnemigo.Contains(new Vector2Int(x, y)))
-        {
-            tableroLogico[x, y] = 2;
-            labelEstado.text = "¡Impacto!";
-
-            if (ComprobarVictoriaEnemigo())
-            {
-                CambiarEstado(EstadoJuego.FinJuego);
-                labelEstado.text = "¡Victoria! Has hundido todos los barcos enemigos. Pulsa R para reiniciar.";
-                return;
-            }
-        }
-        else
-        {
-            tableroLogico[x, y] = 3;
-            labelEstado.text = "Agua... turno del enemigo.";
-        }
-
-        ActualizarVisualCasilla(x, y);
-        CambiarEstado(EstadoJuego.TurnoEnemigo);
-    }
-
-    // Lógica pura: El Enemigo ataca (Simulado por ahora)
-    private IEnumerator SimularTurnoEnemigo()
-    {
-        yield return new WaitForSeconds(1.5f);
-
-        if (estadoActual == EstadoJuego.FinJuego) yield break;
-
-        Vector2Int ataque = ObtenerAtaqueEnemigo();
-        if (ataque == new Vector2Int(-1, -1))
-        {
-            labelEstado.text = "No quedan más casillas. Pulsa R para reiniciar.";
-            CambiarEstado(EstadoJuego.FinJuego);
-            yield break;
-        }
-
-        disparosEnemigo.Add(ataque);
-
-        if (tableroLogico[ataque.x, ataque.y] == 1)
-        {
-            tableroLogico[ataque.x, ataque.y] = 2;
-            RegistrarObjetivoEnemigo(ataque);
-            labelEstado.text = "¡Te han impactado!";
-
-            if (ComprobarVictoriaJugador())
-            {
-                CambiarEstado(EstadoJuego.FinJuego);
-                labelEstado.text = "Has perdido. Pulsa R para reiniciar.";
-                yield break;
-            }
-        }
-        else
-        {
-            tableroLogico[ataque.x, ataque.y] = 3;
-            labelEstado.text = "El enemigo falló su tirada.";
-        }
-
-        ActualizarVisualCasilla(ataque.x, ataque.y);
-
-        yield return new WaitForSeconds(0.8f);
-        CambiarEstado(EstadoJuego.TurnoJugador);
-    }
-
-    private void RegistrarObjetivoEnemigo(Vector2Int posicion)
-    {
-        Vector2Int[] direcciones =
-        {
-            new Vector2Int(1,0),
-            new Vector2Int(-1,0),
-            new Vector2Int(0,1),
-            new Vector2Int(0,-1)
-        };
-
-        foreach (Vector2Int dir in direcciones)
-        {
-            Vector2Int siguiente = posicion + dir;
-            if (siguiente.x >= 0 && siguiente.x < TAMANO && siguiente.y >= 0 && siguiente.y < TAMANO)
-            {
-                if (!disparosEnemigo.Contains(siguiente) && !objetivosEnemigo.Contains(siguiente))
+                if (indiceBarcoActual >= tamaniosBarcos.Length)
                 {
-                    objetivosEnemigo.Add(siguiente);
+                    CambiarEstado(EstadoJuego.TurnoJugador);
+                }
+                else
+                {
+                    ActualizarMensajeEstado();
                 }
             }
         }
     }
 
-    private Vector2Int ObtenerAtaqueEnemigo()
+    private void AlClicTableroEnemigo(int x, int y)
     {
-        if (objetivosEnemigo.Count > 0)
+        if (estadoActual == EstadoJuego.TurnoJugador && tableroEnemigo[x, y] < 2)
         {
-            for (int i = objetivosEnemigo.Count - 1; i >= 0; i--)
-            {
-                Vector2Int objetivo = objetivosEnemigo[i];
-                if (!disparosEnemigo.Contains(objetivo))
-                {
-                    objetivosEnemigo.RemoveAt(i);
-                    return objetivo;
-                }
-            }
+            if (tableroEnemigo[x, y] == 1)
+                tableroEnemigo[x, y] = 2; // Impacto
+            else
+                tableroEnemigo[x, y] = 3; // Fallo
 
-            objetivosEnemigo.Clear();
+            ActualizarCasillaVisual(visualEnemigo[x, y], tableroEnemigo[x, y]);
+            CambiarEstado(EstadoJuego.TurnoEnemigo);
         }
-
-        List<Vector2Int> disponibles = new List<Vector2Int>();
-        for (int x = 0; x < TAMANO; x++)
-        {
-            for (int y = 0; y < TAMANO; y++)
-            {
-                if (tableroLogico[x, y] != 2 && tableroLogico[x, y] != 3 && !disparosEnemigo.Contains(new Vector2Int(x, y)))
-                {
-                    disponibles.Add(new Vector2Int(x, y));
-                }
-            }
-        }
-
-        if (disponibles.Count == 0) return new Vector2Int(-1, -1);
-        return disponibles[Random.Range(0, disponibles.Count)];
     }
 
-    private bool ComprobarVictoriaEnemigo()
+    private bool PuedeColocarBarco(int[,] tablero, int x, int y, int tamanio, bool horizontal)
     {
-        foreach (Vector2Int posicion in barcosEnemigo)
+        for (int i = 0; i < tamanio; i++)
         {
-            if (tableroLogico[posicion.x, posicion.y] == 1)
-            {
+            int nx = horizontal ? x : x + i;
+            int ny = horizontal ? y + i : y;
+
+            if (nx >= 10 || ny >= 10 || tablero[nx, ny] != 0)
                 return false;
-            }
         }
-
         return true;
     }
 
-    private bool ComprobarVictoriaJugador()
+    private void ColocarBarco(int[,] tablero, Image[,] visual, int x, int y, int tamanio, bool horizontal)
     {
-        for (int x = 0; x < TAMANO; x++)
+        for (int i = 0; i < tamanio; i++)
         {
-            for (int y = 0; y < TAMANO; y++)
-            {
-                if (tableroLogico[x, y] == 1)
-                {
-                    return false;
-                }
-            }
-        }
+            int nx = horizontal ? x : x + i;
+            int ny = horizontal ? y + i : y;
 
-        return true;
-    }
-
-    private void GenerarBarcosEnemigo()
-    {
-        barcosEnemigo.Clear();
-        int intentos = 0;
-
-        while (barcosEnemigo.Count < MAX_BARCOS && intentos < 200)
-        {
-            int x = Random.Range(0, TAMANO);
-            int y = Random.Range(0, TAMANO);
-
-            if (!barcosEnemigo.Contains(new Vector2Int(x, y)))
-            {
-                barcosEnemigo.Add(new Vector2Int(x, y));
-            }
-
-            intentos++;
+            tablero[nx, ny] = 1; // 1 = Barco
+            visual[nx, ny].color = Color.gray;
         }
     }
 
-    // 4. ACTUALIZACIÓN VISUAL (Aislada de la lógica matemática)
-    private void ActualizarVisualCasilla(int x, int y)
+    private void ActualizarCasillaVisual(Image img, int estado)
     {
-        int estadoLogico = tableroLogico[x, y];
-        Image imagenBoton = tableroVisual[x, y];
-
-        switch (estadoLogico)
+        switch (estado)
         {
-            case 0:
-                imagenBoton.color = Color.white;
-                break;
-            case 1:
-                imagenBoton.color = Color.gray;
-                break;
-            case 2:
-                imagenBoton.color = Color.red;
-                break;
-            case 3:
-                imagenBoton.color = Color.cyan;
-                break;
+            case 2: img.color = Color.red; break;  // Impacto
+            case 3: img.color = Color.cyan; break; // Agua
         }
     }
 
-    // Gestor de transiciones de estado
     private void CambiarEstado(EstadoJuego nuevoEstado)
     {
         estadoActual = nuevoEstado;
+        ActualizarMensajeEstado();
 
+        if (estadoActual == EstadoJuego.TurnoEnemigo)
+            StartCoroutine(SimularTurnoEnemigo());
+    }
+
+    private void ActualizarMensajeEstado()
+    {
         switch (estadoActual)
         {
             case EstadoJuego.FaseColocacion:
-                labelEstado.text = $"Coloca tus barcos (0/{MAX_BARCOS})";
+                string orientacion = esHorizontal ? "Horizontal" : "Vertical";
+                labelEstado.text = $"Coloca barco de {tamaniosBarcos[indiceBarcoActual]} casillas ({orientacion}) - Clic Der. rotar";
                 break;
-
             case EstadoJuego.TurnoJugador:
-                labelEstado.text = "¡Ataca al enemigo!";
+                labelEstado.text = "¡Selecciona una casilla en el Radar Enemigo para atacar!";
                 break;
-
             case EstadoJuego.TurnoEnemigo:
-                labelEstado.text = "Turno del enemigo...";
-                reiniciando = false;
-                StartCoroutine(SimularTurnoEnemigo());
-                break;
-
-            case EstadoJuego.FinJuego:
-                reiniciando = true;
+                labelEstado.text = "El enemigo está calculando su disparo...";
                 break;
         }
+    }
+
+    private IEnumerator SimularTurnoEnemigo()
+    {
+        yield return new WaitForSeconds(1.5f);
+        CambiarEstado(EstadoJuego.TurnoJugador);
     }
 }
