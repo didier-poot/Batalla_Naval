@@ -5,6 +5,8 @@ using System.Collections;
 
 public class BatallaNavalGUI : MonoBehaviour
 {
+    public LogicaBot botEnemigo;
+    
     [Header("Paneles de Navegación")]
     public GameObject panelMenuInicio;
     public GameObject panelJuego;
@@ -18,11 +20,12 @@ public class BatallaNavalGUI : MonoBehaviour
     public Transform gridEnemigo;  // "Radar Enemigo"
     public GameObject botonCasillaPrefab;
     public TMP_Text labelEstado;
+    public TMP_Text labelResultados;
 
-    // Lógica de Doble Tablero (0 = Agua, 1 = Barco, 2 = Impacto, 3 = Fallo)
+    // Lógica de Doble Tablero 
     private int[,] tableroJugador = new int[10, 10];
-    private int[,] tableroEnemigo = new int[10, 10];
-
+    
+    // Matrices visuales
     private Image[,] visualJugador = new Image[10, 10];
     private Image[,] visualEnemigo = new Image[10, 10];
 
@@ -109,18 +112,36 @@ public class BatallaNavalGUI : MonoBehaviour
         }
     }
 
-    private void AlClicTableroEnemigo(int x, int y)
+    // Único método AlClicTableroEnemigo integrado con tu sistema de turnos
+    public void AlClicTableroEnemigo(int x, int y)
     {
-        if (estadoActual == EstadoJuego.TurnoJugador && tableroEnemigo[x, y] < 2)
-        {
-            if (tableroEnemigo[x, y] == 1)
-                tableroEnemigo[x, y] = 2; // Impacto
-            else
-                tableroEnemigo[x, y] = 3; // Fallo
+        // Solo permite clics si es el turno del jugador
+        if (estadoActual != EstadoJuego.TurnoJugador) return;
 
-            ActualizarCasillaVisual(visualEnemigo[x, y], tableroEnemigo[x, y]);
-            CambiarEstado(EstadoJuego.TurnoEnemigo);
+        // 1. Verificamos si ya habías disparado en esta coordenada
+        if (botEnemigo.tableroEnemigo[x, y] == 2 || botEnemigo.tableroEnemigo[x, y] == -1)
+        {
+            return; // Ya disparaste aquí, ignoramos el clic
         }
+        // Traducimos tus coordenadas
+        string coordTexto = TraducirCoordenadas(x, y);
+
+        // 2. Revisamos si hay barco (1) o agua (0) en la lógica del bot
+        if (botEnemigo.tableroEnemigo[x, y] == 1) 
+        {
+            visualEnemigo[x, y].color = Color.red; 
+            botEnemigo.tableroEnemigo[x, y] = 2;   
+            labelResultados.text = $"¡Tiro Certero! Impactaste un barco enemigo en {coordTexto}.";
+        }
+        else if (botEnemigo.tableroEnemigo[x, y] == 0) 
+        {
+            visualEnemigo[x, y].color = Color.cyan; 
+            botEnemigo.tableroEnemigo[x, y] = -1;    
+            labelResultados.text = $"Fallaste. Disparo al agua en {coordTexto}.";
+        }
+
+        // 3. Cambiamos al turno del enemigo (inicia la corrutina de espera)
+        CambiarEstado(EstadoJuego.TurnoEnemigo);
     }
 
     private bool PuedeColocarBarco(int[,] tablero, int x, int y, int tamanio, bool horizontal)
@@ -145,15 +166,6 @@ public class BatallaNavalGUI : MonoBehaviour
 
             tablero[nx, ny] = 1; // 1 = Barco
             visual[nx, ny].color = Color.gray;
-        }
-    }
-
-    private void ActualizarCasillaVisual(Image img, int estado)
-    {
-        switch (estado)
-        {
-            case 2: img.color = Color.red; break;  // Impacto
-            case 3: img.color = Color.cyan; break; // Agua
         }
     }
 
@@ -185,7 +197,41 @@ public class BatallaNavalGUI : MonoBehaviour
 
     private IEnumerator SimularTurnoEnemigo()
     {
+        // El bot "piensa" por 1.5 segundos
         yield return new WaitForSeconds(1.5f);
+        
+        // El bot dispara
+        RecibirDisparoDelBot();
+
+        // Se le devuelve el turno al jugador
         CambiarEstado(EstadoJuego.TurnoJugador);
+    }
+
+    // Único método de disparo del bot usando la matriz visual
+    private void RecibirDisparoDelBot()
+    {
+        Vector2Int coordenadasAtaque = botEnemigo.TurnoDeAtaqueBot();
+        int botX = coordenadasAtaque.x;
+        int botY = coordenadasAtaque.y;
+
+        // Traducimos las coordenadas antes de imprimirlas
+        string coordTexto = TraducirCoordenadas(botX, botY); 
+
+        if (visualJugador[botX, botY].color == Color.gray) 
+        {
+            visualJugador[botX, botY].color = Color.red; 
+            labelResultados.text = $"¡Alerta! El enemigo impactó tu barco en {coordTexto}."; 
+        }
+        else
+        {
+            visualJugador[botX, botY].color = Color.cyan; 
+            labelResultados.text = $"El enemigo falló. Disparó al agua en {coordTexto}."; 
+        }
+    }
+    private string TraducirCoordenadas(int fila, int columna)
+    {
+        char letra = (char)('A' + columna); // Convierte el 0 en A, 1 en B, etc.
+        int numero = fila + 1;              // Convierte el 0 en 1, 1 en 2, etc.
+        return $"{letra}{numero}";
     }
 }
