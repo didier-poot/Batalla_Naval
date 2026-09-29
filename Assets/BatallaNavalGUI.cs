@@ -53,6 +53,12 @@ public class BatallaNavalGUI : MonoBehaviour
             esHorizontal = !esHorizontal;
             ActualizarMensajeEstado();
         }
+
+        // Reinicio rápido al final del juego con una tecla
+        if (estadoActual == EstadoJuego.FinJuego && Input.GetKeyDown(KeyCode.R))
+        {
+            ReiniciarPartida();
+        }
     }
 
     // Método conectado al botón "INICIAR SECUENCIA"
@@ -140,6 +146,9 @@ public class BatallaNavalGUI : MonoBehaviour
             labelResultados.text = $"Fallaste. Disparo al agua en {coordTexto}.";
         }
 
+        if (VerificarVictoriaODerrota())
+            return;
+
         // 3. Cambiamos al turno del enemigo (inicia la corrutina de espera)
         CambiarEstado(EstadoJuego.TurnoEnemigo);
     }
@@ -192,6 +201,9 @@ public class BatallaNavalGUI : MonoBehaviour
             case EstadoJuego.TurnoEnemigo:
                 labelEstado.text = "El enemigo está calculando su disparo...";
                 break;
+            case EstadoJuego.FinJuego:
+                labelEstado.text = "Partida finalizada";
+                break;
         }
     }
 
@@ -202,6 +214,9 @@ public class BatallaNavalGUI : MonoBehaviour
         
         // El bot dispara
         RecibirDisparoDelBot();
+
+        if (estadoActual == EstadoJuego.FinJuego)
+            yield break;
 
         // Se le devuelve el turno al jugador
         CambiarEstado(EstadoJuego.TurnoJugador);
@@ -219,7 +234,8 @@ public class BatallaNavalGUI : MonoBehaviour
 
         if (visualJugador[botX, botY].color == Color.gray) 
         {
-            visualJugador[botX, botY].color = Color.red; 
+            visualJugador[botX, botY].color = Color.red;
+            tableroJugador[botX, botY] = 2;
             labelResultados.text = $"¡Alerta! El enemigo impactó tu barco en {coordTexto}."; 
         }
         else
@@ -227,7 +243,80 @@ public class BatallaNavalGUI : MonoBehaviour
             visualJugador[botX, botY].color = Color.cyan; 
             labelResultados.text = $"El enemigo falló. Disparó al agua en {coordTexto}."; 
         }
+
+        VerificarVictoriaODerrota();
     }
+
+    private bool VerificarVictoriaODerrota()
+    {
+        int barcosEnemigosRestantes = ContarBarcosRestantes(botEnemigo.tableroEnemigo);
+        int barcosJugadorRestantes = ContarBarcosRestantes(tableroJugador);
+
+        if (barcosEnemigosRestantes == 0)
+        {
+            estadoActual = EstadoJuego.FinJuego;
+            labelEstado.text = "¡Victoria!";
+            labelResultados.text = $"¡Has hundido toda la flota enemiga, {nombreAlmirante}!";
+            return true;
+        }
+
+        if (barcosJugadorRestantes == 0)
+        {
+            estadoActual = EstadoJuego.FinJuego;
+            labelEstado.text = "¡Derrota!";
+            labelResultados.text = "La flota ha sido destruida. Inténtalo de nuevo.";
+            return true;
+        }
+
+        return false;
+    }
+
+    private int ContarBarcosRestantes(int[,] tablero)
+    {
+        int contador = 0;
+
+        for (int x = 0; x < 10; x++)
+        {
+            for (int y = 0; y < 10; y++)
+            {
+                if (tablero[x, y] == 1)
+                    contador++;
+            }
+        }
+
+        return contador;
+    }
+
+    private void ReiniciarPartida()
+    {
+        // Reinicia el estado del juego
+        tableroJugador = new int[10, 10];
+        indiceBarcoActual = 0;
+        esHorizontal = true;
+        nombreAlmirante = string.IsNullOrEmpty(inputNombreJugador.text) ? "Almirante" : inputNombreJugador.text;
+
+        // Reinicia el bot enemigo
+        if (botEnemigo != null)
+        {
+            botEnemigo.GenerarFlotaEnemiga();
+            botEnemigo.memoriaDisparosBot = new int[10, 10];
+        }
+
+        // Limpia el tablero visual
+        for (int x = 0; x < 10; x++)
+        {
+            for (int y = 0; y < 10; y++)
+            {
+                visualJugador[x, y].color = Color.white;
+                visualEnemigo[x, y].color = Color.white;
+            }
+        }
+
+        labelResultados.text = "Partida reiniciada. Nueva estrategia enemiga.";
+        estadoActual = EstadoJuego.FaseColocacion;
+        ActualizarMensajeEstado();
+    }
+
     private string TraducirCoordenadas(int fila, int columna)
     {
         char letra = (char)('A' + columna); // Convierte el 0 en A, 1 en B, etc.

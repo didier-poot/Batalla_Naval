@@ -91,22 +91,88 @@ public class LogicaBot : MonoBehaviour
     // Matriz para recordar dónde ha disparado el bot (0 = no disparado, 1 = disparado)
     public int[,] memoriaDisparosBot = new int[10, 10];
 
-    // Este método es llamado por la GUI para pedirle al bot sus coordenadas de ataque
+    // Lista con casillas sospechosas: son vecinas a un disparo acertado
+    private readonly List<Vector2Int> casillasSospechosas = new List<Vector2Int>();
+
+    // Este método es llamado por la GUI para pedirle al bot sus coordenadas de ataque.
+    // La diferencia es que ahora prioriza casillas cercanas a un acierto antes de disparar aleatoriamente.
     public Vector2Int TurnoDeAtaqueBot()
     {
-        int fila, columna;
-        
-        // El bot busca coordenadas aleatorias hasta encontrar una donde NO haya disparado
-        do
-        {
-            fila = Random.Range(0, 10);
-            columna = Random.Range(0, 10);
-        } while (memoriaDisparosBot[fila, columna] != 0);
+        Vector2Int coordenada;
 
-        // Marca la coordenada en su memoria para no volver a elegirla
-        memoriaDisparosBot[fila, columna] = 1;
-        
-        // Devuelve las coordenadas X (fila) y Y (columna)
-        return new Vector2Int(fila, columna);
+        if (casillasSospechosas.Count > 0)
+        {
+            int indiceAleatorio = Random.Range(0, casillasSospechosas.Count);
+            coordenada = casillasSospechosas[indiceAleatorio];
+            casillasSospechosas.RemoveAt(indiceAleatorio);
+        }
+        else
+        {
+            int fila, columna;
+
+            do
+            {
+                fila = Random.Range(0, 10);
+                columna = Random.Range(0, 10);
+            } while (memoriaDisparosBot[fila, columna] != 0);
+
+            coordenada = new Vector2Int(fila, columna);
+        }
+
+        // Marcar la celda como disparada para no repetirla
+        memoriaDisparosBot[coordenada.x, coordenada.y] = 1;
+
+        return coordenada;
+    }
+
+    // Este método se puede invocar desde la GUI o desde otra clase cuando el bot recibe el resultado del disparo.
+    // Si acierta, añade vecinas como casillas sospechosas para seguir atacando en esa zona.
+    public void RegistrarResultadoAtaque(int fila, int columna, bool acerto)
+    {
+        if (acerto)
+        {
+            AddCasillaSospechosa(fila, columna);
+            AgregarVecinasSospechosas(fila, columna);
+        }
+    }
+
+    private void AddCasillaSospechosa(int fila, int columna)
+    {
+        Vector2Int casilla = new Vector2Int(fila, columna);
+
+        if (!casillasSospechosas.Contains(casilla) && memoriaDisparosBot[fila, columna] == 1)
+        {
+            casillasSospechosas.Add(casilla);
+        }
+    }
+
+    private void AgregarVecinasSospechosas(int fila, int columna)
+    {
+        int[] desplazamientos = { -1, 0, 1 };
+
+        foreach (int dx in desplazamientos)
+        {
+            foreach (int dy in desplazamientos)
+            {
+                if (Mathf.Abs(dx) == Mathf.Abs(dy))
+                    continue;
+
+                int nuevaFila = fila + dx;
+                int nuevaColumna = columna + dy;
+
+                if (EsCasillaValida(nuevaFila, nuevaColumna) && memoriaDisparosBot[nuevaFila, nuevaColumna] == 0)
+                {
+                    Vector2Int vecina = new Vector2Int(nuevaFila, nuevaColumna);
+
+                    if (!casillasSospechosas.Contains(vecina))
+                        casillasSospechosas.Add(vecina);
+                }
+            }
+        }
+    }
+
+    private bool EsCasillaValida(int fila, int columna)
+    {
+        return fila >= 0 && fila < 10 && columna >= 0 && columna < 10;
     }
 }
