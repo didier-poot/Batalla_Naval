@@ -2,6 +2,7 @@ using UnityEngine;
 using UnityEngine.UI;
 using TMPro;
 using System.Collections;
+using UnityEngine.SceneManagement;
 
 public class BatallaNavalGUI : MonoBehaviour
 {
@@ -22,6 +23,22 @@ public class BatallaNavalGUI : MonoBehaviour
     public TMP_Text labelEstado;
     public TMP_Text labelResultados;
 
+    [Header("Assets Visuales")]
+    public Sprite spriteAgua;      // Tile de agua del Pirate Pack
+    public Sprite spriteImpacto;   // Explosión del Pixel Art FX
+    public Sprite spriteFallo;     // Salpicadura de agua o "X"
+    [System.Serializable]
+    public struct DiseñoBarco
+    {
+        public Sprite proa;
+        public Sprite cuerpo;
+        public Sprite popa;
+    }
+
+    // 2. Creamos una lista de estos diseños para tu flota entera
+    [Header("Diseños de la Flota")]
+    public DiseñoBarco[] diseñosFlota;
+
     // Lógica de Doble Tablero 
     private int[,] tableroJugador = new int[10, 10];
     
@@ -37,6 +54,14 @@ public class BatallaNavalGUI : MonoBehaviour
 
     public enum EstadoJuego { Menu, FaseColocacion, TurnoJugador, TurnoEnemigo, FinJuego }
     private EstadoJuego estadoActual;
+    [Header("Fin de Juego")]
+    public GameObject panelFinJuego;
+    public TMP_Text textoFinJuego;
+    
+    // 5 + 4 + 3 + 3 + 2 = 17 impactos para destruir toda la flota
+    private int impactosParaGanar = 17; 
+    private int aciertosJugador = 0;
+    private int aciertosBot = 0;
 
     void Start()
     {
@@ -76,25 +101,33 @@ public class BatallaNavalGUI : MonoBehaviour
         CambiarEstado(EstadoJuego.FaseColocacion);
     }
 
-    private void GenerarTablerosUI()
+   private void GenerarTablerosUI()
+{
+    for (int x = 0; x < 10; x++)
     {
-        for (int x = 0; x < 10; x++)
+        for (int y = 0; y < 10; y++)
         {
-            for (int y = 0; y < 10; y++)
-            {
-                // Crear casilla en "Tu Flota"
-                GameObject bJugador = Instantiate(botonCasillaPrefab, gridJugador);
-                visualJugador[x, y] = bJugador.GetComponent<Image>();
-                int posX = x, posY = y;
-                bJugador.GetComponent<Button>().onClick.AddListener(() => AlClicTableroJugador(posX, posY));
+            // Crear casilla en "Tu Flota"
+            GameObject bJugador = Instantiate(botonCasillaPrefab, gridJugador);
+            visualJugador[x, y] = bJugador.GetComponent<Image>();
+            
+            // Asigna la textura del agua al jugador
+            visualJugador[x, y].sprite = spriteAgua; 
+            
+            int posX = x, posY = y;
+            bJugador.GetComponent<Button>().onClick.AddListener(() => AlClicTableroJugador(posX, posY));
 
-                // Crear casilla en "Radar Enemigo"
-                GameObject bEnemigo = Instantiate(botonCasillaPrefab, gridEnemigo);
-                visualEnemigo[x, y] = bEnemigo.GetComponent<Image>();
-                bEnemigo.GetComponent<Button>().onClick.AddListener(() => AlClicTableroEnemigo(posX, posY));
-            }
+            // Crear casilla en "Radar Enemigo"
+            GameObject bEnemigo = Instantiate(botonCasillaPrefab, gridEnemigo);
+            visualEnemigo[x, y] = bEnemigo.GetComponent<Image>();
+            
+            // Asigna la textura del agua al enemigo
+            visualEnemigo[x, y].sprite = spriteAgua; 
+            
+            bEnemigo.GetComponent<Button>().onClick.AddListener(() => AlClicTableroEnemigo(posX, posY));
         }
     }
+}
 
     private void AlClicTableroJugador(int x, int y)
     {
@@ -124,31 +157,55 @@ public class BatallaNavalGUI : MonoBehaviour
         // Solo permite clics si es el turno del jugador
         if (estadoActual != EstadoJuego.TurnoJugador) return;
 
-        // 1. Verificamos si ya habías disparado en esta coordenada
-        if (botEnemigo.tableroEnemigo[x, y] == 2 || botEnemigo.tableroEnemigo[x, y] == -1)
+        // 1. Verificamos si ya habías disparado en esta coordenada 
+        // (-1 es agua golpeada, -2 es barco golpeado)
+        if (botEnemigo.tableroEnemigo[x, y] == -2 || botEnemigo.tableroEnemigo[x, y] == -1)
         {
             return; // Ya disparaste aquí, ignoramos el clic
         }
+        
         // Traducimos tus coordenadas
         string coordTexto = TraducirCoordenadas(x, y);
+        
+        // Obtenemos qué hay en la casilla
+        int idImpacto = botEnemigo.tableroEnemigo[x, y];
 
-        // 2. Revisamos si hay barco (1) o agua (0) en la lógica del bot
-        if (botEnemigo.tableroEnemigo[x, y] == 1) 
+        // 2. Revisamos si hay barco (ID mayor a 0) o agua (0) en la lógica del bot
+        if (idImpacto > 0) 
         {
-            visualEnemigo[x, y].color = Color.red; 
-            botEnemigo.tableroEnemigo[x, y] = 2;   
-            labelResultados.text = $"¡Tiro Certero! Impactaste un barco enemigo en {coordTexto}.";
+            visualEnemigo[x, y].sprite = spriteImpacto; 
+            visualEnemigo[x, y].color = Color.white;
+
+            botEnemigo.tableroEnemigo[x, y] = -2; // Lo marcamos como golpeado (-2)
+            
+            // Restamos 1 punto de vida al barco específico que tocamos
+            botEnemigo.vidaBarcos[idImpacto]--;
+
+            // Verificamos si la vida de ese barco llegó a cero
+            if (botEnemigo.vidaBarcos[idImpacto] <= 0)
+            {
+                string nombre = botEnemigo.nombresBarcos[idImpacto];
+                labelResultados.text = $"¡Hundiste el {nombre} enemigo en {coordTexto}!";
+            }
+            else
+            {
+                labelResultados.text = $"¡Tiro Certero! Impactaste un barco enemigo en {coordTexto}.";
+            }
+            
+            aciertosJugador++;
+            if (aciertosJugador >= impactosParaGanar)
+            {
+                MostrarPantallaFinal("¡VICTORIA ALMIRANTE!\nHundiste toda la flota enemiga.");
+                return; // Detenemos la función para que el bot no contraataque
+            }
         }
-        else if (botEnemigo.tableroEnemigo[x, y] == 0) 
+        else if (idImpacto == 0) 
         {
-            visualEnemigo[x, y].color = Color.cyan; 
+            visualEnemigo[x, y].sprite = spriteFallo; 
+            visualEnemigo[x, y].color = Color.white; 
             botEnemigo.tableroEnemigo[x, y] = -1;    
             labelResultados.text = $"Fallaste. Disparo al agua en {coordTexto}.";
         }
-
-        if (VerificarVictoriaODerrota())
-            return;
-
         // 3. Cambiamos al turno del enemigo (inicia la corrutina de espera)
         CambiarEstado(EstadoJuego.TurnoEnemigo);
     }
@@ -168,13 +225,48 @@ public class BatallaNavalGUI : MonoBehaviour
 
     private void ColocarBarco(int[,] tablero, Image[,] visual, int x, int y, int tamanio, bool horizontal)
     {
+        // Tomamos el diseño que le toca al barco actual
+        DiseñoBarco disenoActual = diseñosFlota[indiceBarcoActual];
+
         for (int i = 0; i < tamanio; i++)
         {
             int nx = horizontal ? x : x + i;
             int ny = horizontal ? y + i : y;
 
             tablero[nx, ny] = 1; // 1 = Barco
-            visual[nx, ny].color = Color.gray;
+            
+            // Buscamos la capa superior (IconoContenido)
+            Image capaSuperior = visual[nx, ny].transform.GetChild(0).GetComponent<Image>();
+            
+            // Asignamos el sprite según la posición de la pieza
+            if (i == 0) 
+            {
+                capaSuperior.sprite = disenoActual.proa;
+            }
+            else if (i == tamanio - 1) 
+            {
+                capaSuperior.sprite = disenoActual.popa;
+            }
+            else 
+            {
+                capaSuperior.sprite = disenoActual.cuerpo;
+            }
+            
+            // Restauramos la transparencia para que se vea
+            capaSuperior.color = new Color(1, 1, 1, 1); 
+
+            // Rotamos la imagen para que el barco apunte hacia donde debe
+            // (Los sprites del Pirate Pack miran hacia arriba por defecto)
+            if (horizontal)
+            {
+                // Giramos 90 grados para que se acueste
+                capaSuperior.rectTransform.localRotation = Quaternion.Euler(0, 0, -90);
+            }
+            else
+            {
+                // Lo dejamos normal
+                capaSuperior.rectTransform.localRotation = Quaternion.Euler(0, 0, 0);
+            }
         }
     }
 
@@ -224,69 +316,41 @@ public class BatallaNavalGUI : MonoBehaviour
 
     // Único método de disparo del bot usando la matriz visual
     private void RecibirDisparoDelBot()
+{
+    Vector2Int coordenadasAtaque = botEnemigo.TurnoDeAtaqueBot();
+    int botX = coordenadasAtaque.x;
+    int botY = coordenadasAtaque.y;
+
+    // Traducimos las coordenadas antes de imprimirlas
+    string coordTexto = TraducirCoordenadas(botX, botY);
+
+    // Obtenemos la capa superior (IconoContenido) de la casilla atacada
+    Image capaSuperior = visualJugador[botX, botY].transform.GetChild(0).GetComponent<Image>();
+
+    // 1. Evaluamos la matriz numerica en lugar de comparar sprites
+    if (tableroJugador[botX, botY] == 1) // 1 = Hay barco
     {
-        Vector2Int coordenadasAtaque = botEnemigo.TurnoDeAtaqueBot();
-        int botX = coordenadasAtaque.x;
-        int botY = coordenadasAtaque.y;
+        capaSuperior.sprite = spriteImpacto;
+        capaSuperior.color = Color.white; // Asegura que el Alpha sea 1 para que se vea la explosion
+        tableroJugador[botX, botY] = 2;   // 2 = Casilla con barco destruido
 
-        // Traducimos las coordenadas antes de imprimirlas
-        string coordTexto = TraducirCoordenadas(botX, botY); 
-
-        if (visualJugador[botX, botY].color == Color.gray) 
+        labelResultados.text = $"¡Alerta! El enemigo impactó tu barco en {coordTexto}.";
+        aciertosBot++;
+        
+        if (aciertosBot >= impactosParaGanar)
         {
-            visualJugador[botX, botY].color = Color.red;
-            tableroJugador[botX, botY] = 2;
-            labelResultados.text = $"¡Alerta! El enemigo impactó tu barco en {coordTexto}."; 
+            MostrarPantallaFinal("¡DERROTA!\nEl enemigo destruyó tu flota.");
         }
-        else
-        {
-            visualJugador[botX, botY].color = Color.cyan; 
-            labelResultados.text = $"El enemigo falló. Disparó al agua en {coordTexto}."; 
-        }
-
-        VerificarVictoriaODerrota();
     }
-
-    private bool VerificarVictoriaODerrota()
+    else
     {
-        int barcosEnemigosRestantes = ContarBarcosRestantes(botEnemigo.tableroEnemigo);
-        int barcosJugadorRestantes = ContarBarcosRestantes(tableroJugador);
+        capaSuperior.sprite = spriteFallo;
+        capaSuperior.color = Color.white;
+        tableroJugador[botX, botY] = 3;   // 3 = Agua disparada / Fallo
 
-        if (barcosEnemigosRestantes == 0)
-        {
-            estadoActual = EstadoJuego.FinJuego;
-            labelEstado.text = "¡Victoria!";
-            labelResultados.text = $"¡Has hundido toda la flota enemiga, {nombreAlmirante}!";
-            return true;
-        }
-
-        if (barcosJugadorRestantes == 0)
-        {
-            estadoActual = EstadoJuego.FinJuego;
-            labelEstado.text = "¡Derrota!";
-            labelResultados.text = "La flota ha sido destruida. Inténtalo de nuevo.";
-            return true;
-        }
-
-        return false;
+        labelResultados.text = $"El enemigo disparó en {coordTexto} y cayó al agua.";
     }
-
-    private int ContarBarcosRestantes(int[,] tablero)
-    {
-        int contador = 0;
-
-        for (int x = 0; x < 10; x++)
-        {
-            for (int y = 0; y < 10; y++)
-            {
-                if (tablero[x, y] == 1)
-                    contador++;
-            }
-        }
-
-        return contador;
-    }
-
+}
     private void ReiniciarPartida()
     {
         // Reinicia el estado del juego
@@ -322,5 +386,20 @@ public class BatallaNavalGUI : MonoBehaviour
         char letra = (char)('A' + columna); // Convierte el 0 en A, 1 en B, etc.
         int numero = fila + 1;              // Convierte el 0 en 1, 1 en 2, etc.
         return $"{letra}{numero}";
+    }
+    private void MostrarPantallaFinal(string mensaje)
+    {
+        estadoActual = EstadoJuego.FinJuego;
+        labelEstado.text = "Partida finalizada";
+        // Ocultamos los tableros y mostramos la pantalla de victoria
+        //panelJuego.SetActive(false);
+        panelFinJuego.SetActive(true);
+        textoFinJuego.text = mensaje;
+    }
+
+    // Este método lo conectarás al botón "Jugar de Nuevo"
+    public void ReiniciarJuego()
+    {
+        SceneManager.LoadScene(SceneManager.GetActiveScene().buildIndex);
     }
 }

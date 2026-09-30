@@ -1,13 +1,18 @@
 using UnityEngine;
+using System.Collections.Generic;
 
 public class LogicaBot : MonoBehaviour
 {
     // Matriz 10x10 que representa el tablero del bot. 
-    // 0 = Agua, 1 = Barco
+    // 0 = Agua, 1 al 5 = ID de Barco específico
     public int[,] tableroEnemigo = new int[10, 10];
     
     // Tamaños clásicos de los barcos de Batalla Naval
     private int[] tamanosBarcos = { 5, 4, 3, 3, 2 };
+
+    // Diccionarios para guardar los nombres y la vida restante de cada barco
+    public Dictionary<int, string> nombresBarcos = new Dictionary<int, string>();
+    public Dictionary<int, int> vidaBarcos = new Dictionary<int, int>();
 
     void Start()
     {
@@ -16,7 +21,17 @@ public class LogicaBot : MonoBehaviour
 
     public void GenerarFlotaEnemiga()
     {
-        // 1. Limpiar el tablero por si se reinicia el juego
+        // 1. Inicializar la información de los barcos (ID, Nombre) y (ID, Vida)
+        nombresBarcos.Clear();
+        vidaBarcos.Clear();
+        
+        nombresBarcos.Add(1, "Portaaviones"); vidaBarcos.Add(1, 5); // ID 1 (Tamaño 5)
+        nombresBarcos.Add(2, "Acorazado");    vidaBarcos.Add(2, 4); // ID 2 (Tamaño 4)
+        nombresBarcos.Add(3, "Submarino");    vidaBarcos.Add(3, 3); // ID 3 (Tamaño 3)
+        nombresBarcos.Add(4, "Crucero");      vidaBarcos.Add(4, 3); // ID 4 (Tamaño 3)
+        nombresBarcos.Add(5, "Destructor");   vidaBarcos.Add(5, 2); // ID 5 (Tamaño 2)
+
+        // 2. Limpiar el tablero por si se reinicia el juego
         for (int x = 0; x < 10; x++)
         {
             for (int y = 0; y < 10; y++)
@@ -25,9 +40,11 @@ public class LogicaBot : MonoBehaviour
             }
         }
 
-        // 2. Intentar colocar cada barco de la lista
-        foreach (int tamano in tamanosBarcos)
+        // 3. Intentar colocar cada barco de la lista usando su ID único
+        for (int i = 0; i < tamanosBarcos.Length; i++)
         {
+            int tamano = tamanosBarcos[i];
+            int barcoID = i + 1; // Los IDs serán 1, 2, 3, 4 y 5
             bool barcoColocado = false;
 
             while (!barcoColocado)
@@ -42,20 +59,20 @@ public class LogicaBot : MonoBehaviour
                 // Verificar si cabe y si el espacio está libre
                 if (ValidarPosicionLibre(fila, columna, tamano, esHorizontal))
                 {
-                    // Registrar el barco en la matriz marcando con '1'
-                    for (int i = 0; i < tamano; i++)
+                    // Registrar el barco en la matriz marcando con su ID ('barcoID')
+                    for (int j = 0; j < tamano; j++)
                     {
                         if (esHorizontal)
-                            tableroEnemigo[fila, columna + i] = 1;
+                            tableroEnemigo[fila, columna + j] = barcoID;
                         else
-                            tableroEnemigo[fila + i, columna] = 1;
+                            tableroEnemigo[fila + j, columna] = barcoID;
                     }
                     barcoColocado = true; 
                 }
             }
         }
         
-        Debug.Log("La flota enemiga ha tomado posiciones estratégicas.");
+        Debug.Log("La flota enemiga ha tomado posiciones estratégicas con IDs asignados.");
     }
 
     private bool ValidarPosicionLibre(int fila, int columna, int tamano, bool esHorizontal)
@@ -88,6 +105,7 @@ public class LogicaBot : MonoBehaviour
         // Si sobrevive a ambas comprobaciones, la posición es perfecta
         return true; 
     }
+
     // Matriz para recordar dónde ha disparado el bot (0 = no disparado, 1 = disparado)
     public int[,] memoriaDisparosBot = new int[10, 10];
 
@@ -95,7 +113,6 @@ public class LogicaBot : MonoBehaviour
     private readonly List<Vector2Int> casillasSospechosas = new List<Vector2Int>();
 
     // Este método es llamado por la GUI para pedirle al bot sus coordenadas de ataque.
-    // La diferencia es que ahora prioriza casillas cercanas a un acierto antes de disparar aleatoriamente.
     public Vector2Int TurnoDeAtaqueBot()
     {
         Vector2Int coordenada;
@@ -126,7 +143,6 @@ public class LogicaBot : MonoBehaviour
     }
 
     // Este método se puede invocar desde la GUI o desde otra clase cuando el bot recibe el resultado del disparo.
-    // Si acierta, añade vecinas como casillas sospechosas para seguir atacando en esa zona.
     public void RegistrarResultadoAtaque(int fila, int columna, bool acerto)
     {
         if (acerto)
